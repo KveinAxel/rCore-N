@@ -69,6 +69,7 @@ impl Future for KernelTask {
         let mut r = self.reactor.lock();
         if r.is_ready(self.id) {
             *r.get_task_mut(self.id).unwrap() = TaskState::Finish;
+            // 发送用户态中断
             self.send_msg(TaskResult::SUCCESS);
             Poll::Ready(self.id.0)
         } else if r.contains_task(self.id) {

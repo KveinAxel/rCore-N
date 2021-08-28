@@ -30,7 +30,7 @@ pub enum UserTrapError {
 }
 
 impl UserTrapInfo {
-    // caller of this function should check wheter user interrupt is enabled
+    // caller of this function should check whether user interrupt is enabled
     pub unsafe fn push_trap_record(
         &mut self,
         trap_record: UserTrapRecord,

@@ -8,6 +8,8 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use lazy_static::*;
+use crate::async_rt::run_until_idle;
+
 lazy_static! {
     pub static ref PROCESSORS: [Processor; CPU_NUM] = Default::default();
 }
@@ -186,6 +188,8 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 }
 
 pub fn schedule(switched_task_cx_ptr2: *const usize) {
+    // 调度所有的系统调用任务
+    run_until_idle();
     let idle_task_cx_ptr2 = PROCESSORS[hart_id()].get_idle_task_cx_ptr2();
     unsafe {
         __switch(switched_task_cx_ptr2, idle_task_cx_ptr2);

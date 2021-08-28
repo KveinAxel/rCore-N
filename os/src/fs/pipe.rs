@@ -5,9 +5,9 @@ use alloc::sync::{Arc, Weak};
 use spin::Mutex;
 
 pub struct Pipe {
-    readable: bool,
-    writable: bool,
-    buffer: Arc<Mutex<PipeRingBuffer>>,
+    pub(crate) readable: bool,
+    pub(crate) writable: bool,
+    pub(crate) buffer: Arc<Mutex<PipeRingBuffer>>,
 }
 
 impl Pipe {
