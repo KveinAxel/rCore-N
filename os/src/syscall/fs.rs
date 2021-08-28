@@ -1,85 +1,119 @@
 use core::cmp::min;
 
-use crate::fs::{make_pipe, File};
-use crate::task::{current_task, current_user_token};
+use spin::Mutex;
+
 use crate::{
     mm::{translated_byte_buffer, translated_refmut, UserBuffer},
     task::find_task,
 };
+use crate::async_rt::KernelTask;
+use crate::fs::{File, make_pipe};
+use crate::task::{current_task, current_user_token};
+use alloc::boxed::Box;
 
-pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
-    let token = current_user_token();
-    let task = current_task().unwrap();
-    let inner = task.acquire_inner_lock();
-    if fd >= inner.fd_table.len() {
-        return -1;
-    }
-    if let Some(file) = &inner.fd_table[fd] {
-        let file = file.clone();
-        // release Task lock manually to avoid deadlock
-        drop(inner);
-        if let Ok(buffers) = translated_byte_buffer(token, buf, len) {
-            match file.write(UserBuffer::new(buffers)) {
-                Ok(write_len) => write_len as isize,
-                Err(_) => -1,
+pub fn sys_write(fd: usize, buf: *const u8, len: usize, is_async: usize) -> isize {
+    if is_async & 1 == 0 {
+        let token = current_user_token();
+        let task = current_task().unwrap();
+        let inner = task.acquire_inner_lock();
+        if fd >= inner.fd_table.len() {
+            return -1;
+        }
+        if let Some(file) = &inner.fd_table[fd] {
+            let file = file.clone();
+            // release Task lock manually to avoid deadlock
+            drop(inner);
+            if let Ok(buffers) = translated_byte_buffer(token, buf, len) {
+                match file.write(UserBuffer::new(buffers)) {
+                    Ok(write_len) => write_len as isize,
+                    Err(_) => -1,
+                }
+            } else {
+                -1
             }
         } else {
             -1
         }
     } else {
-        -1
+        todo!("async write")
     }
 }
 
-pub fn sys_read(fd: usize, buf: *const u8, len: usize) -> isize {
-    let token = current_user_token();
-    let task = current_task().unwrap();
-    let inner = task.acquire_inner_lock();
-    if fd >= inner.fd_table.len() {
-        return -1;
-    }
-    if let Some(file) = &inner.fd_table[fd] {
-        let file = file.clone();
-        // release Task lock manually to avoid deadlock
-        drop(inner);
-        if let Ok(buffers) = translated_byte_buffer(token, buf, len) {
-            match file.read(UserBuffer::new(buffers)) {
-                Ok(read_len) => read_len as isize,
-                Err(_) => -1,
+pub fn sys_read(fd: usize, buf: *const u8, len: usize, is_async: usize) -> isize {
+    if is_async & 1 == 0 {
+        let token = current_user_token();
+        let task = current_task().unwrap();
+        let inner = task.acquire_inner_lock();
+        if fd >= inner.fd_table.len() {
+            return -1;
+        }
+        if let Some(file) = &inner.fd_table[fd] {
+            let file = file.clone();
+            // release Task lock manually to avoid deadlock
+            drop(inner);
+            if let Ok(buffers) = translated_byte_buffer(token, buf, len) {
+                match file.read(UserBuffer::new(buffers)) {
+                    Ok(read_len) => read_len as isize,
+                    Err(_) => -1,
+                }
+            } else {
+                -1
             }
         } else {
             -1
         }
     } else {
-        -1
+        todo!("async read")
     }
 }
 
-pub fn sys_close(fd: usize) -> isize {
+pub fn sys_close(fd: usize, is_async: usize) -> isize {
     let task = current_task().unwrap();
-    let mut inner = task.acquire_inner_lock();
-    if fd >= inner.fd_table.len() {
-        return -1;
+    if is_async & 1 == 0 {
+        let mut inner = task.acquire_inner_lock();
+        if fd >= inner.fd_table.len() {
+            return -1;
+        }
+        if inner.fd_table[fd].is_none() {
+            return -1;
+        }
+        inner.fd_table[fd].take();
+        0
+    } else {
+        use crate::async_rt::AsyncClose;
+
+        let future = AsyncClose {
+            tcb: task.clone(),
+            fd,
+        };
+        let future = Box::pin(future);
+        let pid = task.pid.0;
+
+        use crate::async_rt::REACTOR;
+        use crate::async_rt::KERNEL_TASK_QUEUE;
+
+        let mut queue = KERNEL_TASK_QUEUE.lock();
+        queue.add_task(KernelTask::new(REACTOR.clone(), pid, Mutex::new(future)));
+        0
     }
-    if inner.fd_table[fd].is_none() {
-        return -1;
-    }
-    inner.fd_table[fd].take();
-    0
 }
 
-pub fn sys_pipe(pipe: *mut usize) -> isize {
-    let task = current_task().unwrap();
-    let token = current_user_token();
-    let mut inner = task.acquire_inner_lock();
-    let (pipe_read, pipe_write) = make_pipe();
-    let read_fd = inner.alloc_fd();
-    inner.fd_table[read_fd] = Some(pipe_read);
-    let write_fd = inner.alloc_fd();
-    inner.fd_table[write_fd] = Some(pipe_write);
-    *translated_refmut(token, pipe) = read_fd;
-    *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd;
-    0
+pub fn sys_pipe(pipe: *mut usize, is_async: usize) -> isize {
+    if is_async & 1 == 0 {
+        let task = current_task().unwrap();
+        let token = current_user_token();
+        let mut inner = task.acquire_inner_lock();
+        let (pipe_read, pipe_write) = make_pipe();
+        let read_fd = inner.alloc_fd();
+        inner.fd_table[read_fd] = Some(pipe_read);
+        let write_fd = inner.alloc_fd();
+        inner.fd_table[write_fd] = Some(pipe_write);
+        *translated_refmut(token, pipe) = read_fd;
+        *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd;
+        0
+    } else {
+        todo!("async pipe")
+    }
 }
 
 pub fn sys_mailwrite(pid: usize, buf: *mut u8, len: usize) -> isize {

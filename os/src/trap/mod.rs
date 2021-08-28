@@ -10,7 +10,6 @@ use crate::task::{
     suspend_current_and_run_next,
 };
 use crate::timer::{get_time_us, set_next_trigger, TIMER_MAP};
-use riscv::asm::ebreak;
 use riscv::register::{
     mtvec::TrapMode,
     scause::{self, Exception, Interrupt, Trap},
@@ -59,7 +58,7 @@ pub fn trap_handler() -> ! {
             cx.sepc += 4;
             let id = cx.x[17];
             // get system call return value
-            let result = syscall(cx.x[17], [cx.x[10], cx.x[11], cx.x[12]]);
+            let result = syscall(cx.x[17], [cx.x[10], cx.x[11], cx.x[12], cx.x[13]]);
             // cx is changed during sys_exec, so we have to call it again
             // cx = current_trap_cx();
             if id != 221 || result != 0 {

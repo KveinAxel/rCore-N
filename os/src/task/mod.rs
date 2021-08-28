@@ -12,8 +12,8 @@ use lazy_static::*;
 
 use spin::Mutex;
 use switch::__switch;
-use task::{TaskControlBlock, TaskStatus};
 
+pub use task::{TaskControlBlock, TaskStatus};
 pub use context::TaskContext;
 pub use pid::{find_task, pid_alloc, KernelStack, PidHandle};
 pub use pool::{add_task, fetch_task, prioritize_task};

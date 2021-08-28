@@ -1,4 +1,4 @@
-use super::{current_task, TaskControlBlock};
+use super::{TaskControlBlock};
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 

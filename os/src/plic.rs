@@ -1,4 +1,3 @@
-use crate::task::prioritize_task;
 use crate::trap::{push_trap_record, UserTrapRecord, USER_EXT_INT_MAP};
 use crate::uart;
 use rv_plic::{Priority, PLIC};

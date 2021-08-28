@@ -7,6 +7,7 @@
 #![feature(alloc_error_handler)]
 #![feature(map_first_last)]
 #![feature(map_try_insert)]
+#![feature(maybe_uninit_uninit_array)]
 
 extern crate alloc;
 extern crate rv_plic;
@@ -35,6 +36,7 @@ mod timer;
 mod trap;
 #[macro_use]
 mod uart;
+mod async_rt;
 
 global_asm!(include_str!("entry.asm"));
 global_asm!(include_str!("link_app.asm"));
