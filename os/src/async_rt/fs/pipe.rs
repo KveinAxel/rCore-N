@@ -1,10 +1,7 @@
-use alloc::sync::{Arc, Weak};
-
-use spin::Mutex;
-
-use crate::fs::{Pipe, make_pipe};
-use crate::mm::{UserBuffer, translated_refmut};
-use crate::task::{suspend_current_and_run_next, current_task, TaskControlBlock};
+use alloc::sync::Arc;
+use crate::fs::make_pipe;
+use crate::mm::translated_refmut;
+use crate::task::TaskControlBlock;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};

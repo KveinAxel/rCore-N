@@ -6,22 +6,24 @@
 #![feature(panic_info_message)]
 #![feature(alloc_error_handler)]
 
+extern crate alloc;
+#[macro_use]
+extern crate bitflags;
+
+use alloc::vec::Vec;
+
+use buddy_system_allocator::LockedHeap;
+
+use syscall::*;
+pub use trap::{UserTrapContext, UserTrapRecord};
+
 #[macro_use]
 pub mod console;
 mod lang_items;
 mod syscall;
 mod trap;
 pub mod user_uart;
-
-extern crate alloc;
-#[macro_use]
-extern crate bitflags;
-
-use alloc::vec::Vec;
-use buddy_system_allocator::LockedHeap;
-use syscall::*;
-
-pub use trap::{UserTrapContext, UserTrapRecord};
+mod async_rt;
 
 const USER_HEAP_SIZE: usize = 32768;
 
@@ -62,7 +64,7 @@ pub extern "C" fn _start(argc: usize, argv: usize) -> ! {
             core::str::from_utf8(unsafe {
                 core::slice::from_raw_parts(str_start as *const u8, len)
             })
-            .unwrap(),
+                .unwrap(),
         );
     }
     exit(main(argc, v.as_slice()));
@@ -87,6 +89,7 @@ bitflags! {
 pub fn dup(fd: usize) -> isize {
     sys_dup(fd)
 }
+
 pub fn open(path: &str, flags: OpenFlags) -> isize {
     sys_open(path, flags.bits)
 }
@@ -106,12 +109,15 @@ pub fn read(fd: usize, buf: &mut [u8]) -> isize {
 pub fn write(fd: usize, buf: &[u8]) -> isize {
     sys_write(fd, buf)
 }
+
 pub fn exit(exit_code: i32) -> ! {
     sys_exit(exit_code);
 }
+
 pub fn yield_() -> isize {
     sys_yield()
 }
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct TimeVal {
@@ -144,15 +150,19 @@ pub fn get_time_us() -> isize {
 pub fn getpid() -> isize {
     sys_getpid()
 }
+
 pub fn fork() -> isize {
     sys_fork()
 }
+
 pub fn exec(path: &str, args: &[*const u8]) -> isize {
     sys_exec(path, args)
 }
+
 pub fn spawn(path: &str) -> isize {
     sys_spawn(path)
 }
+
 pub fn wait(exit_code: &mut i32) -> isize {
     loop {
         match sys_waitpid(-1, exit_code as *mut _) {
@@ -176,6 +186,7 @@ pub fn waitpid(pid: usize, exit_code: &mut i32) -> isize {
         }
     }
 }
+
 pub fn sleep(period_ms: usize) {
     let start = get_time();
     while get_time() < start + period_ms as isize {

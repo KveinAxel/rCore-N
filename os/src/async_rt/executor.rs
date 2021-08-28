@@ -8,7 +8,7 @@ use riscv::register::sie;
 use spin::Mutex;
 use woke::waker_ref;
 
-use crate::async_rt::TaskId;
+use crate::async_rt::{TaskId, TaskState};
 
 use super::task::KernelTask;
 
@@ -53,12 +53,26 @@ pub fn run_until_idle() {
         match task {
             // have any task
             Some(task) => {
-                let waker = waker_ref(task);
-                let mut context = Context::from_waker(&*waker);
-                let ret = task.future.lock().as_mut().poll(&mut context);
-                if let Poll::Ready(_) = ret {
-                    let mut queue = KERNEL_TASK_QUEUE.lock();
-                    queue.delete_task(task.id)
+                let mut r = task.reactor.lock();
+                if r.is_ready(task.id) {
+                    let waker = waker_ref(task);
+                    let mut context = Context::from_waker(&*waker);
+                    let ret = task.future.lock().as_mut().poll(&mut context);
+                    match ret {
+                        Poll::Ready(_) => {
+                            let mut queue = KERNEL_TASK_QUEUE.lock();
+                            queue.delete_task(task.id)
+                        }
+                        Poll::Pending => {
+                            r.add_task(task.id);
+                        }
+                    }
+                } else if r.contains_task(task.id) {
+                    if let Some(task) = r.get_task_mut(task.id) {
+                        *task = TaskState::NotReady;
+                    }
+                } else {
+                    r.register(task.id);
                 }
             }
             None => break

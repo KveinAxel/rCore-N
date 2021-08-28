@@ -1,13 +1,15 @@
 use riscv::register::{ucause, uepc, uip, uscratch, ustatus::Ustatus, utval};
+use rv_plic::PLIC;
+use crate::async_rt::{REACTOR, TaskId};
 
 pub const PAGE_SIZE: usize = 0x1000;
 pub const TRAMPOLINE: usize = usize::MAX - PAGE_SIZE + 1;
 pub const TRAP_CONTEXT: usize = TRAMPOLINE - PAGE_SIZE;
 pub const USER_TRAP_BUFFER: usize = TRAP_CONTEXT - PAGE_SIZE;
 
-use rv_plic::PLIC;
 pub const PLIC_BASE: usize = 0xc00_0000;
 pub const PLIC_PRIORITY_BIT: usize = 3;
+
 pub type Plic = PLIC<PLIC_BASE, PLIC_PRIORITY_BIT>;
 
 pub fn hart_id() -> usize {
@@ -22,11 +24,11 @@ pub fn get_context(hart_id: usize, mode: char) -> usize {
     const MODE_PER_HART: usize = 3;
     hart_id * MODE_PER_HART
         + match mode {
-            'M' => 0,
-            'S' => 1,
-            'U' => 2,
-            _ => panic!("Wrong Mode"),
-        }
+        'M' => 0,
+        'S' => 1,
+        'U' => 2,
+        _ => panic!("Wrong Mode"),
+    }
 }
 
 #[repr(C)]
@@ -120,6 +122,13 @@ pub fn soft_intr_handler(pid: usize, msg: usize) {
         "[user trap default] user software interrupt, pid: {}, msg: {:#x}",
         pid, msg
     );
+
+    // msg最高位为1表示是异步系统调用的用户态中断返回
+    if msg > usize::MAX / 2 {
+        let task_id= msg - usize::MAX / 2 - 1;
+        let mut r = REACTOR.lock();
+        r.wake(TaskId(task_id));
+    }
 }
 
 #[linkage = "weak"]

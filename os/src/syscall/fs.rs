@@ -7,11 +7,10 @@ use crate::{
     mm::{translated_byte_buffer, translated_refmut, UserBuffer},
     task::find_task,
 };
-use crate::async_rt::KernelTaskQueue;
 use crate::fs::{File, make_pipe};
 use crate::task::{current_task, current_user_token};
 
-pub fn sys_write(fd: usize, buf: *const u8, len: usize, is_async: usize) -> isize {
+pub fn sys_write(fd: usize, buf: *const u8, len: usize, user_task_id: usize) -> isize {
     let token = current_user_token();
     let task = current_task().unwrap();
     let inner = task.acquire_inner_lock();
@@ -22,7 +21,7 @@ pub fn sys_write(fd: usize, buf: *const u8, len: usize, is_async: usize) -> isiz
         let file = file.clone();
         // release Task lock manually to avoid deadlock
         drop(inner);
-        if is_async & 1 == 0 {
+        if user_task_id == 0 {
             if let Ok(buffers) = translated_byte_buffer(token, buf, len) {
                 match file.write(UserBuffer::new(buffers)) {
                     Ok(write_len) => write_len as isize,
@@ -37,7 +36,7 @@ pub fn sys_write(fd: usize, buf: *const u8, len: usize, is_async: usize) -> isiz
             let future = AsyncWrite::new(file, buf, len, token);
             let future = Box::pin(future);
             let mut queue = KERNEL_TASK_QUEUE.lock();
-            queue.add_task(KernelTask::new(REACTOR.clone(), task.getpid(), Mutex::new(future)));
+            queue.add_task(KernelTask::new(REACTOR.clone(), task.getpid(), user_task_id, Mutex::new(future)));
 
             0
         }
@@ -46,7 +45,7 @@ pub fn sys_write(fd: usize, buf: *const u8, len: usize, is_async: usize) -> isiz
     }
 }
 
-pub fn sys_read(fd: usize, buf: *const u8, len: usize, is_async: usize) -> isize {
+pub fn sys_read(fd: usize, buf: *const u8, len: usize, user_task_id: usize) -> isize {
     let token = current_user_token();
     let task = current_task().unwrap();
     let inner = task.acquire_inner_lock();
@@ -57,7 +56,7 @@ pub fn sys_read(fd: usize, buf: *const u8, len: usize, is_async: usize) -> isize
         let file = file.clone();
         // release Task lock manually to avoid deadlock
         drop(inner);
-        if is_async & 1 == 0 {
+        if user_task_id == 0 {
             if let Ok(buffers) = translated_byte_buffer(token, buf, len) {
                 match file.read(UserBuffer::new(buffers)) {
                     Ok(read_len) => read_len as isize,
@@ -72,7 +71,7 @@ pub fn sys_read(fd: usize, buf: *const u8, len: usize, is_async: usize) -> isize
             let future = AsyncRead::new(file, buf, len, token);
             let future = Box::pin(future);
             let mut queue = KERNEL_TASK_QUEUE.lock();
-            queue.add_task(KernelTask::new(REACTOR.clone(), task.getpid(), Mutex::new(future)));
+            queue.add_task(KernelTask::new(REACTOR.clone(), task.getpid(), user_task_id, Mutex::new(future)));
             0
         }
     } else {
@@ -80,9 +79,9 @@ pub fn sys_read(fd: usize, buf: *const u8, len: usize, is_async: usize) -> isize
     }
 }
 
-pub fn sys_close(fd: usize, is_async: usize) -> isize {
+pub fn sys_close(fd: usize, user_task_id: usize) -> isize {
     let task = current_task().unwrap();
-    if is_async & 1 == 0 {
+    if user_task_id == 0 {
         let mut inner = task.acquire_inner_lock();
         if fd >= inner.fd_table.len() {
             return -1;
@@ -105,16 +104,16 @@ pub fn sys_close(fd: usize, is_async: usize) -> isize {
         use crate::async_rt::{KERNEL_TASK_QUEUE, REACTOR, KernelTask};
 
         let mut queue = KERNEL_TASK_QUEUE.lock();
-        queue.add_task(KernelTask::new(REACTOR.clone(), pid, Mutex::new(future)));
+        queue.add_task(KernelTask::new(REACTOR.clone(), pid, user_task_id, Mutex::new(future)));
         0
     }
 }
 
-pub fn sys_pipe(pipe: *mut usize, is_async: usize) -> isize {
+pub fn sys_pipe(pipe: *mut usize, user_task_id: usize) -> isize {
     let task = current_task().unwrap();
     let token = current_user_token();
 
-    if is_async & 1 == 0 {
+    if user_task_id == 0 {
         let mut inner = task.acquire_inner_lock();
         let (pipe_read, pipe_write) = make_pipe();
         let read_fd = inner.alloc_fd();
@@ -129,7 +128,7 @@ pub fn sys_pipe(pipe: *mut usize, is_async: usize) -> isize {
 
         let future = AsyncPipeOpen::new(task.clone(), token, pipe);
         let future = Box::pin(future);
-        KERNEL_TASK_QUEUE.lock().add_task(KernelTask::new(REACTOR.clone(), task.getpid(), Mutex::new(future)));
+        KERNEL_TASK_QUEUE.lock().add_task(KernelTask::new(REACTOR.clone(), task.getpid(), user_task_id, Mutex::new(future)));
 
         0
     }

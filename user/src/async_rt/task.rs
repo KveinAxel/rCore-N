@@ -8,25 +8,20 @@ use core::task::{Context, Poll};
 use spin::Mutex;
 
 use crate::async_rt::TaskState;
-use crate::syscall::sys_send_msg;
 
 use super::reactor::Reactor;
 
-pub struct KernelTask {
+pub struct UserTask {
     // 任务编号
     pub id: TaskId,
-    // 调用进程
-    pub pid: usize,
     // 调用进程的Reactor
     pub reactor: Arc<Mutex<Box<Reactor>>>,
-    // 用户任务id
-    pub user_task_id: usize,
     // 调用的任务内容
     pub future: Mutex<Pin<Box<dyn Future<Output=isize> + 'static + Send + Sync>>>, // 用UnsafeCell代替Mutex会好一点
 }
 
 #[derive(Eq, PartialEq, Debug, Clone, Copy, Hash, Ord, PartialOrd)]
-pub struct TaskId(usize);
+pub struct TaskId(pub(crate) usize);
 
 impl TaskId {
     pub(crate) fn generate() -> TaskId {
@@ -41,37 +36,44 @@ impl TaskId {
     }
 }
 
-impl KernelTask {
-    pub fn new(reactor: Arc<Mutex<Box<Reactor>>>, pid: usize, user_task_id: usize, fut: Mutex<Pin<Box<dyn Future<Output=isize> + 'static + Send + Sync>>>) -> Self {
-        KernelTask {
+impl From<TaskId> for usize {
+    fn from(task_id: TaskId) -> Self {
+        task_id.0
+    }
+}
+
+impl UserTask {
+    pub fn new(reactor: Arc<Mutex<Box<Reactor>>>, fut: Mutex<Pin<Box<dyn Future<Output=isize> + 'static + Send + Sync>>>) -> Self {
+        UserTask {
             id: TaskId::generate(),
-            pid,
-            user_task_id,
             future: fut,
             reactor,
         }
     }
 
-    pub fn send_msg(&self, msg: usize) {
-        sys_send_msg(self.pid, msg);
-    }
-
     pub fn do_wake(self: &Arc<Self>) {
-        // todo!()
+        // todo
     }
 }
 
-impl Future for KernelTask {
-    type Output = usize;
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+impl Future for UserTask {
+    type Output = isize;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut r = self.reactor.lock();
         if r.is_ready(self.id) {
             *r.get_task_mut(self.id).unwrap() = TaskState::Finish;
-            // 发送用户态中断
-            assert!(self.user_task_id <= usize::MAX / 2);
-            let msg = self.user_task_id + 1 + usize::MAX / 2;
-            self.send_msg(msg);
-            Poll::Ready(self.id.0)
+            let mut future = self.future.lock();
+            let ret = future.as_mut().poll(cx);
+            match ret {
+                Poll::Ready(val) => {
+                    r.finish_task(self.id);
+                    Poll::Ready(val)
+                }
+                Poll::Pending => {
+                    r.add_task(self.id);
+                    Poll::Pending
+                }
+            }
         } else if r.contains_task(self.id) {
             r.add_task(self.id);
             Poll::Pending
@@ -82,8 +84,16 @@ impl Future for KernelTask {
     }
 }
 
-impl woke::Woke for KernelTask {
+impl woke::Woke for UserTask {
     fn wake_by_ref(task: &Arc<Self>) {
         task.do_wake()
+    }
+}
+
+impl Drop for UserTask {
+    fn drop(&mut self) {
+        let r = self.reactor.clone();
+        let mut r = r.lock();
+        r.remove_task(self.id);
     }
 }

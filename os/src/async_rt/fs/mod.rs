@@ -1,5 +1,4 @@
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
@@ -53,7 +52,7 @@ impl<F> AsyncRead<F> where F: File + Send + Sync + ?Sized {
 impl<F> Future for AsyncRead<F> where F: File + Send + Sync + ?Sized {
     type Output = isize;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         if let Ok(buffers) = translated_byte_buffer(self.token, self.buf as *const u8, self.len) {
             match self.file.read(UserBuffer::new(buffers)) {
                 Ok(read_len) => Poll::Ready(read_len as isize),
@@ -86,7 +85,7 @@ impl<F> AsyncWrite<F> where F: File + Send + Sync + ?Sized {
 impl<F> Future for AsyncWrite<F> where F: File + Send + Sync + ?Sized {
     type Output = isize;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         if let Ok(buffers) = translated_byte_buffer(self.token, self.buf as *const u8, self.len) {
             match self.file.write(UserBuffer::new(buffers)) {
                 Ok(write_len) => Poll::Ready(write_len as isize),
