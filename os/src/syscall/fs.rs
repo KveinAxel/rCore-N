@@ -1,6 +1,5 @@
 use alloc::boxed::Box;
 use core::cmp::min;
-
 use spin::Mutex;
 
 use crate::{
@@ -110,6 +109,7 @@ pub fn sys_close(fd: usize, user_task_id: usize) -> isize {
 }
 
 pub fn sys_pipe(pipe: *mut usize, user_task_id: usize) -> isize {
+    debug!("sys pipe, user_id: {}", user_task_id);
     let task = current_task().unwrap();
     let token = current_user_token();
 
@@ -124,6 +124,7 @@ pub fn sys_pipe(pipe: *mut usize, user_task_id: usize) -> isize {
         *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd;
         0
     } else {
+        debug!("syscall async pipe");
         use crate::async_rt::{AsyncPipeOpen, REACTOR, KERNEL_TASK_QUEUE, KernelTask};
 
         let future = AsyncPipeOpen::new(task.clone(), token, pipe);

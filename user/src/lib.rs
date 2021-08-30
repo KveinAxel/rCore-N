@@ -23,7 +23,7 @@ mod lang_items;
 mod syscall;
 mod trap;
 pub mod user_uart;
-mod async_rt;
+pub mod async_rt;
 
 const USER_HEAP_SIZE: usize = 32768;
 

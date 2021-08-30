@@ -26,7 +26,7 @@ pub struct TaskId(pub(crate) usize);
 impl TaskId {
     pub(crate) fn generate() -> TaskId {
         // 任务编号计数器，任务编号自增
-        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        static COUNTER: AtomicUsize = AtomicUsize::new(1);
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         if id > usize::MAX / 2 {
             // TODO: 不让系统 Panic
@@ -61,6 +61,7 @@ impl Future for UserTask {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut r = self.reactor.lock();
         if r.is_ready(self.id) {
+            println!("is ready");
             *r.get_task_mut(self.id).unwrap() = TaskState::Finish;
             let mut future = self.future.lock();
             let ret = future.as_mut().poll(cx);
@@ -78,8 +79,17 @@ impl Future for UserTask {
             r.add_task(self.id);
             Poll::Pending
         } else {
-            r.register(self.id); // fixme
-            Poll::Pending
+            let mut f = self.future.lock();
+            match f.as_mut().poll(cx) {
+                Poll::Ready(val) => {
+                    return Poll::Ready(0);
+                }
+                Poll::Pending => {
+                    println!("register");
+                    r.register(self.id); // fixme
+                    Poll::Pending
+                }
+            }
         }
     }
 }

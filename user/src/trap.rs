@@ -1,4 +1,4 @@
-use riscv::register::{ucause, uepc, uip, uscratch, ustatus::Ustatus, utval};
+use riscv::register::{ucause, uepc, uip, uscratch, ustatus::Ustatus, utval, sie};
 use rv_plic::PLIC;
 use crate::async_rt::{REACTOR, TaskId};
 
@@ -57,6 +57,7 @@ pub fn user_trap_handler(cx: &mut UserTrapContext) -> &mut UserTrapContext {
     match ucause.cause() {
         ucause::Trap::Interrupt(ucause::Interrupt::UserSoft) => {
             let trap_record_num = uscratch::read();
+            println!("trap_record_num: {}", trap_record_num);
             let mut head_ptr = USER_TRAP_BUFFER as *const UserTrapRecord;
             for _ in 0..trap_record_num {
                 unsafe {

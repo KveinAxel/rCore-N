@@ -18,7 +18,7 @@ impl AsyncClose {
     pub fn new(fd: usize) -> UserTask {
         let id = TaskId::generate();
         let future = AsyncClose {
-            first: false,
+            first: true,
             task_id: id.into(),
             fd,
         };
@@ -55,7 +55,7 @@ impl AsyncRead {
     pub fn new(fd: usize, buffer: &mut [u8]) -> UserTask {
         let id = TaskId::generate();
         let future = AsyncRead {
-            first: false,
+            first: true,
             task_id: id.into(),
             fd,
             buffer: buffer.as_mut_ptr() as usize,
@@ -97,7 +97,7 @@ impl AsyncWrite {
     pub fn new(fd: usize, buffer: &[u8]) -> UserTask {
         let id = TaskId::generate();
         let future = AsyncWrite {
-            first: false,
+            first: true,
             task_id: id.into(),
             fd,
             buffer: buffer.as_ptr() as usize,
@@ -134,10 +134,11 @@ impl AsyncPipe {
     pub fn new(pipe: usize) -> UserTask {
         let id = TaskId::generate();
         let future = AsyncPipe {
-            first: false,
-            task_id: id.into(),
+            first: true,
+            task_id: id.0,
             pipe,
         };
+        println!("new AsyncPipe");
         UserTask {
             id,
             future: Mutex::new(Box::pin(future)),
@@ -149,8 +150,10 @@ impl AsyncPipe {
 impl Future for AsyncPipe {
     type Output = isize;
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        println!("poll");
         if self.first {
             self.first = false;
+            println!("first poll, user_id: {}", self.task_id);
             syscall(SYSCALL_PIPE, [self.pipe, self.task_id, 0, 0]);
             Poll::Pending
         } else {

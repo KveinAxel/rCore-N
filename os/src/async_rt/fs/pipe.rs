@@ -29,6 +29,7 @@ impl Future for AsyncPipeOpen {
     type Output = isize;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        debug!("polling sys pipe open");
         let mut inner = self.task.acquire_inner_lock();
         let (pipe_read, pipe_write) = make_pipe();
         let read_fd = inner.alloc_fd();

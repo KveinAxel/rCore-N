@@ -6,8 +6,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use woke::waker_ref;
-
-use crate::async_rt::UserTask;
+use riscv::register::uie;
 
 struct MyWaker;
 
@@ -17,81 +16,69 @@ impl woke::Woke for MyWaker {
     }
 }
 
-fn block_on(mut task: UserTask) -> <UserTask as Future>::Output {
+pub fn block_on<F: Future>(future: F) -> F::Output {
     let mywaker = Arc::new(MyWaker);
     let waker = waker_ref(&mywaker);
     let mut context = Context::from_waker(&*waker);
-    let mut task = unsafe { Pin::new_unchecked(&mut task) };
-    let r = task.reactor.clone();
-    let mut r = r.lock();
+    let mut future = Box::pin(future);
 
     loop {
-        if r.is_ready(task.id) {
-            match Future::poll(task.as_mut(), &mut context) {
+        match future.as_mut().poll(&mut context) {
+            Poll::Pending => {
+                // println!("pending")
+            }
+            Poll::Ready(val) => return val
+        }
+    }
+}
+
+pub fn select<F: Future>(futures: Vec::<F>) -> F::Output {
+    let mywaker = Arc::new(MyWaker);
+    let waker = waker_ref(&mywaker);
+    let mut context = Context::from_waker(&*waker);
+
+    let mut futures = futures
+        .into_iter()
+        .map(|future| Box::pin(future))
+        .collect::<Vec<Pin<Box<F>>>>();
+
+    loop {
+        for future in futures.iter_mut() {
+            match future.as_mut().poll(&mut context) {
                 Poll::Ready(val) => return val,
-                Poll::Pending => { r.add_task(task.id); }
-            }
-        } else if r.contains_task(task.id) {
-            r.add_task(task.id);
-        } else {
-            r.register(task.id);
-        }
-    }
-}
-
-pub fn select<const N: usize>(tasks: Vec::<UserTask>) -> <UserTask as Future>::Output {
-    let mywaker = Arc::new(MyWaker);
-    let waker = waker_ref(&mywaker);
-    let mut context = Context::from_waker(&*waker);
-    let mut tasks = tasks.into_iter().map(|task| Box::pin(task)).collect::<Vec<Pin<Box<UserTask>>>>();
-
-    loop {
-        for task in tasks.iter_mut() {
-            let r = task.reactor.clone();
-            let mut r = r.lock();
-            if r.is_ready(task.id) {
-                match Future::poll(task.as_mut(), &mut context) {
-                    Poll::Ready(val) => return val,
-                    Poll::Pending => { r.add_task(task.id); }
-                }
-            } else if r.contains_task(task.id) {
-                r.add_task(task.id);
-            } else {
-                r.register(task.id);
+                Poll::Pending => {}
             }
         }
     }
 }
 
-pub fn join<const N: usize>(tasks: Vec<UserTask>) {
+pub fn join<F: Future>(futures: Vec<F>) {
     let mywaker = Arc::new(MyWaker);
     let waker = waker_ref(&mywaker);
     let mut context = Context::from_waker(&*waker);
-    let mut tasks: Vec<Pin<Box<UserTask>>> = tasks.into_iter().map(|task| Box::pin(task)).collect();
 
+    let mut futures: Vec<Pin<Box<F>>> = futures.into_iter().map(|future| Box::pin(future)).collect();
+    let mut ok = Vec::new();
+
+    for _ in futures.iter() {
+        ok.push(false);
+    }
+    let mut cnt = 0;
+    let tot = futures.len();
     loop {
-        let mut ok = true;
-        for task in tasks.iter_mut() {
-            let r = task.reactor.clone();
-            let mut r = r.lock();
-            if r.is_finish(task.id) {
-                continue;
-            } else {
-                ok = false;
-                if r.is_ready(task.id) {
-                    match Future::poll(task.as_mut(), &mut context) {
-                        Poll::Ready(_) => (),
-                        Poll::Pending => { r.add_task(task.id); }
+        for (i, future) in futures.iter_mut().enumerate() {
+            if !ok[i] {
+                match future.as_mut().poll(&mut context) {
+                    Poll::Ready(_) => {
+                        ok[i] = true;
+                        cnt += 1;
+                        if cnt == tot {
+                            return;
+                        }
                     }
-                } else if r.contains_task(task.id) {
-                    r.add_task(task.id);
-                } else {
-                    r.register(task.id);
+                    Poll::Pending => {}
                 }
             }
-        }
-        if ok {
-            return;
         }
     }
 }

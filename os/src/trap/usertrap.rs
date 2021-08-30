@@ -41,7 +41,7 @@ impl UserTrapInfo {
             let tail_ptr = head_ptr.add(self.user_trap_record_num);
             tail_ptr.write(trap_record);
             self.user_trap_record_num += 1;
-            // trace!("[push trap record] Succeeded");
+            debug!("[push trap record] Succeeded");
             Ok(self.user_trap_record_num)
         } else {
             warn!("[push trap record] User trap buffer overflow");

@@ -63,7 +63,8 @@ impl KernelTask {
 
 impl Future for KernelTask {
     type Output = usize;
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        debug!("poll kernel task");
         let mut r = self.reactor.lock();
         if r.is_ready(self.id) {
             *r.get_task_mut(self.id).unwrap() = TaskState::Finish;
@@ -76,8 +77,16 @@ impl Future for KernelTask {
             r.add_task(self.id);
             Poll::Pending
         } else {
-            r.register(self.id); // fixme
-            Poll::Pending
+            let mut f = self.future.lock();
+            debug!("first poll for future in KernelTask");
+            match f.as_mut().poll(cx) {
+                Poll::Ready(_) => Poll::Ready(0),
+                Poll::Pending => {
+                    r.register(self.id); // fixme
+                    Poll::Pending
+                }
+            }
+
         }
     }
 }
@@ -85,5 +94,14 @@ impl Future for KernelTask {
 impl woke::Woke for KernelTask {
     fn wake_by_ref(task: &Arc<Self>) {
         task.do_wake()
+    }
+}
+
+impl Drop for KernelTask {
+    fn drop(&mut self) {
+        let r = self.reactor.clone();
+        let mut r = r.lock();
+
+        r.remove_task(self.id);
     }
 }
